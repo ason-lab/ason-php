@@ -1,0 +1,49 @@
+# Build artifacts
+*.lo
+*.la
+*.o
+*.so
+*.dylib
+*.dll
+
+# PHP extension build
+.libs/
+.deps/
+modules/
+build/
+tmp-php.ini
+libtool
+config.h
+config.h.in
+config.nice
+config.log
+config.status
+config.guess
+config.sub
+configure
+configure.ac
+configure.in
+acinclude.m4
+aclocal.m4
+autom4te.cache/
+install-sh
+ltmain.sh
+missing
+mkinstalldirs
+run-tests.php
+Makefile
+Makefile.fragments
+Makefile.global
+Makefile.objects
+include/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
