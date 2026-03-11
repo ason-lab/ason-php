@@ -36,6 +36,8 @@ Makefile.fragments
 Makefile.global
 Makefile.objects
 include/
+*.txt
+*.phpt
 
 # IDE
 .vscode/
