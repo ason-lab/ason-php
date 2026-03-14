@@ -27,6 +27,8 @@ using namespace ason_core;
 
 static void encode_zval(std::string& buf, zval* val);
 static void encode_zval_typed(std::string& buf, zval* val);
+static bool is_sequential_array(HashTable* ht);
+static void append_schema_type(std::string& buf, zval* val);
 
 static void encode_array_schema(std::string& buf, zval* val, bool typed) {
     HashTable* ht = Z_ARRVAL_P(val);
@@ -41,26 +43,8 @@ static void encode_array_schema(std::string& buf, zval* val, bool typed) {
         if (typed) {
             zval* v = zend_hash_find(ht, key);
             if (v) {
-                switch (Z_TYPE_P(v)) {
-                    case IS_LONG: buf.append(":int"); break;
-                    case IS_DOUBLE: buf.append(":float"); break;
-                    case IS_TRUE: case IS_FALSE: buf.append(":bool"); break;
-                    case IS_STRING: buf.append(":str"); break;
-                    case IS_ARRAY: {
-                        HashTable* inner = Z_ARRVAL_P(v);
-                        zval* first_el = zend_hash_index_find(inner, 0);
-                        if (first_el && Z_TYPE_P(first_el) == IS_ARRAY) {
-                            buf.append(":[{");
-                            encode_array_schema(buf, first_el, typed);
-                            buf.append("}]");
-                        } else {
-                            buf.append(":[str]");
-                        }
-                        break;
-                    }
-                    case IS_NULL: buf.append(":str"); break;
-                    default: break;
-                }
+                buf.push_back('@');
+                append_schema_type(buf, v);
             }
         }
     } ZEND_HASH_FOREACH_END();
@@ -74,6 +58,49 @@ static bool is_sequential_array(HashTable* ht) {
         if (key || idx != expected++) return false;
     } ZEND_HASH_FOREACH_END();
     return true;
+}
+
+static void append_schema_type(std::string& buf, zval* val) {
+    switch (Z_TYPE_P(val)) {
+        case IS_LONG:
+            buf.append("int");
+            break;
+        case IS_DOUBLE:
+            buf.append("float");
+            break;
+        case IS_TRUE:
+        case IS_FALSE:
+            buf.append("bool");
+            break;
+        case IS_STRING:
+            buf.append("str");
+            break;
+        case IS_NULL:
+            buf.append("str?");
+            break;
+        case IS_ARRAY: {
+            HashTable* inner = Z_ARRVAL_P(val);
+            if (!is_sequential_array(inner)) {
+                buf.push_back('{');
+                encode_array_schema(buf, val, true);
+                buf.push_back('}');
+                break;
+            }
+
+            zval* first_el = zend_hash_index_find(inner, 0);
+            buf.push_back('[');
+            if (!first_el) {
+                buf.append("str");
+            } else {
+                append_schema_type(buf, first_el);
+            }
+            buf.push_back(']');
+            break;
+        }
+        default:
+            buf.append("str");
+            break;
+    }
 }
 
 static void encode_tuple_values(std::string& buf, zval* val) {
@@ -98,16 +125,10 @@ static void encode_zval(std::string& buf, zval* val) {
         case IS_ARRAY: {
             HashTable* ht = Z_ARRVAL_P(val);
             if (is_sequential_array(ht)) {
-                // Check if array of assoc arrays (vec of structs)
                 zval* first_el = zend_hash_index_find(ht, 0);
                 if (first_el && Z_TYPE_P(first_el) == IS_ARRAY && !is_sequential_array(Z_ARRVAL_P(first_el))) {
-                    // Vec of structs: [{schema}]:(tuple),(tuple),...
+                    // Nested object arrays are body-only: [(...),(...)]
                     buf.push_back('[');
-                    buf.push_back('{');
-                    encode_array_schema(buf, first_el, false);
-                    buf.push_back('}');
-                    buf.push_back(']');
-                    buf.push_back(':');
                     bool f2 = true;
                     zval* el;
                     ZEND_HASH_FOREACH_VAL(ht, el) {
@@ -117,6 +138,7 @@ static void encode_zval(std::string& buf, zval* val) {
                         encode_tuple_values(buf, el);
                         buf.push_back(')');
                     } ZEND_HASH_FOREACH_END();
+                    buf.push_back(']');
                 } else {
                     // Simple array: [v1,v2,...]
                     buf.push_back('[');
@@ -130,11 +152,7 @@ static void encode_zval(std::string& buf, zval* val) {
                     buf.push_back(']');
                 }
             } else {
-                // Assoc array → struct: {schema}:(values)
-                buf.push_back('{');
-                encode_array_schema(buf, val, false);
-                buf.push_back('}');
-                buf.push_back(':');
+                // Nested structs are body-only tuples: (v1,v2,...)
                 buf.push_back('(');
                 encode_tuple_values(buf, val);
                 buf.push_back(')');
@@ -566,6 +584,28 @@ PHP_FUNCTION(ason_encode) {
             buf.push_back('(');
             encode_tuple_values(buf, input);
             buf.push_back(')');
+        } else if (Z_TYPE_P(input) == IS_ARRAY) {
+            HashTable* ht = Z_ARRVAL_P(input);
+            zval* first_el = zend_hash_index_find(ht, 0);
+            if (first_el && Z_TYPE_P(first_el) == IS_ARRAY && !is_sequential_array(Z_ARRVAL_P(first_el))) {
+                buf.push_back('[');
+                buf.push_back('{');
+                encode_array_schema(buf, first_el, false);
+                buf.push_back('}');
+                buf.push_back(']');
+                buf.push_back(':');
+                bool f2 = true;
+                zval* el;
+                ZEND_HASH_FOREACH_VAL(ht, el) {
+                    if (!f2) buf.push_back(',');
+                    f2 = false;
+                    buf.push_back('(');
+                    encode_tuple_values(buf, el);
+                    buf.push_back(')');
+                } ZEND_HASH_FOREACH_END();
+            } else {
+                encode_zval(buf, input);
+            }
         } else {
             encode_zval(buf, input);
         }
@@ -717,6 +757,28 @@ PHP_FUNCTION(ason_encodePretty) {
             buf.push_back('(');
             encode_tuple_values(buf, input);
             buf.push_back(')');
+        } else if (Z_TYPE_P(input) == IS_ARRAY) {
+            HashTable* ht = Z_ARRVAL_P(input);
+            zval* first_el = zend_hash_index_find(ht, 0);
+            if (first_el && Z_TYPE_P(first_el) == IS_ARRAY && !is_sequential_array(Z_ARRVAL_P(first_el))) {
+                buf.push_back('[');
+                buf.push_back('{');
+                encode_array_schema(buf, first_el, false);
+                buf.push_back('}');
+                buf.push_back(']');
+                buf.push_back(':');
+                bool f2 = true;
+                zval* el;
+                ZEND_HASH_FOREACH_VAL(ht, el) {
+                    if (!f2) buf.push_back(',');
+                    f2 = false;
+                    buf.push_back('(');
+                    encode_tuple_values(buf, el);
+                    buf.push_back(')');
+                } ZEND_HASH_FOREACH_END();
+            } else {
+                encode_zval(buf, input);
+            }
         } else {
             encode_zval(buf, input);
         }

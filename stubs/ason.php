@@ -24,8 +24,10 @@ function ason_encode(mixed $data): string { return ""; }
 /**
  * Decode an ASON string to a PHP value.
  *
- * Supports both schema-prefixed: {field:type}:(val1,val2)
- * and vec format: [{field:type}]:(v1,v2),(v3,v4)
+ * Supports both schema-prefixed: {field@type}:(val1,val2)
+ * and vec format: [{field@type}]:(v1,v2),(v3,v4)
+ *
+ * Legacy map syntax like <str,int> is not supported.
  *
  * @param string $input ASON-formatted string
  * @return mixed Decoded PHP value (array, string, int, float, bool, null)
@@ -68,7 +70,7 @@ function ason_decodeBinary(string $input, array $schema): mixed { return null; }
  * Encode a PHP value to ASON format with type annotations.
  *
  * Like ason_encode() but includes type hints in the schema:
- * {id:int,name:str,active:bool}:(1,Alice,true)
+ * {id@int,name@str,active@bool}:(1,Alice,true)
  *
  * @param mixed $data The data to encode
  * @return string ASON-encoded string with type annotations

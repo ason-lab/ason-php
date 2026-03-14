@@ -15,7 +15,7 @@ $typed_str = ason_encodeTyped($user);
 echo "Serialize with type annotations:\n  $typed_str\n\n";
 
 // 3. Deserialize from ASON
-$loaded = ason_decode('{id:int,name:str,active:bool}:(1,Alice,true)');
+$loaded = ason_decode('{id@int,name@str,active@bool}:(1,Alice,true)');
 echo "Deserialize single struct:\n";
 echo "  {ID:{$loaded['id']} Name:{$loaded['name']} Active:" . ($loaded['active'] ? 'true' : 'false') . "}\n\n";
 
@@ -33,7 +33,7 @@ $typed_vec = ason_encodeTyped($users);
 echo "Serialize vec with type annotations:\n  $typed_vec\n\n";
 
 // 6. Deserialize vec
-$users2 = ason_decode('[{id:int,name:str,active:bool}]:(1,Alice,true),(2,Bob,false),(3,"Carol Smith",true)');
+$users2 = ason_decode('[{id@int,name@str,active@bool}]:(1,Alice,true),(2,Bob,false),(3,"Carol Smith",true)');
 echo "Deserialize vec:\n";
 foreach ($users2 as $u) {
     echo "  {ID:{$u['id']} Name:{$u['name']} Active:" . ($u['active'] ? 'true' : 'false') . "}\n";
@@ -41,7 +41,7 @@ foreach ($users2 as $u) {
 
 // 7. Multiline format
 echo "\nMultiline format:\n";
-$multiline = "[{id:int, name:str, active:bool}]:\n  (1, Alice, true),\n  (2, Bob, false),\n  (3, \"Carol Smith\", true)";
+$multiline = "[{id@int, name@str, active@bool}]:\n  (1, Alice, true),\n  (2, Bob, false),\n  (3, \"Carol Smith\", true)";
 $users3 = ason_decode($multiline);
 foreach ($users3 as $u) {
     echo "  {ID:{$u['id']} Name:{$u['name']} Active:" . ($u['active'] ? 'true' : 'false') . "}\n";

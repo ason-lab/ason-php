@@ -17,8 +17,14 @@ JSON (100 tokens):
 {"users":[{"id":1,"name":"Alice","active":true},{"id":2,"name":"Bob","active":false}]}
 
 ASON (~35 tokens, 节省 65%):
-[{id:int, name:str, active:bool}]:(1,Alice,true),(2,Bob,false)
+[{id@int, name@str, active@bool}]:(1,Alice,true),(2,Bob,false)
 ```
+
+## 当前语法
+
+- 字段类型注解统一使用 `@`，例如 `{id@int,name@str}`。
+- header / body 之间仍然使用 `:` 分隔，例如 `{id@int,name@str}:(1,Alice)`。
+- 专用 map 语法已经移除。键值集合请改用 entry-object list，例如 `attrs@[{key@str,value@int}]`。
 
 ## 性能 (PHP 8.4, x86_64 SSE2/AVX2)
 
@@ -115,7 +121,7 @@ $ason = ason_encode($user);
 
 // 带类型注解
 $typed = ason_encodeTyped($user);
-// → "{id:int,name:str,active:bool}:(1,Alice,true)"
+// → "{id@int,name@str,active@bool}:(1,Alice,true)"
 
 // 反序列化
 $decoded = ason_decode($ason);
@@ -158,7 +164,7 @@ $users = [
 ];
 
 echo ason_encodePrettyTyped($users);
-// [{id:int, name:str, active:bool}]:
+// [{id@int, name@str, active@bool}]:
 //   (1, Alice, true),
 //   (2, Bob, false)
 ```
@@ -174,7 +180,7 @@ php -d extension=modules/ason.so examples/basic.php
 # 运行复杂嵌套结构示例
 php -d extension=modules/ason.so examples/complex.php
 
-# 运行性能基准测试 (ASON vs json_encode/json_decode)
+# 运行性能基准测试 (JSON / ASON / BIN)
 php -d extension=modules/ason.so examples/bench.php
 ```
 

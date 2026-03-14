@@ -6,24 +6,22 @@ echo "=== ASON Complex Examples ===\n\n";
 
 // 1. Nested struct
 echo "1. Nested struct:\n";
-$emp = ason_decode('{id,name,dept:{title},skills,active}:(1,Alice,(Manager),[rust],true)');
+$emp = ason_decode('{id@int,name@str,dept@{title@str},skills@[str],active@bool}:(1,Alice,(Manager),[rust],true)');
 $deptTitle = is_array($emp['dept']) && isset($emp['dept']['title']) ? $emp['dept']['title'] : (is_array($emp['dept']) ? $emp['dept'][0] : $emp['dept']);
 echo "   {ID:{$emp['id']} Name:{$emp['name']} Dept:{Title:{$deptTitle}} Skills:[{$emp['skills'][0]}] Active:" . ($emp['active']?'true':'false') . "}\n\n";
 
 // 2. Vec with nested structs
 echo "2. Vec with nested structs:\n";
-$input2 = "[{id:int,name:str,dept:{title:str},skills:[str],active:bool}]:\n  (1, Alice, (Manager), [Rust, Go], true),\n  (2, Bob, (Engineer), [Python], false),\n  (3, \"Carol Smith\", (Director), [Leadership, Strategy], true)";
+$input2 = "[{id@int,name@str,dept@{title@str},skills@[str],active@bool}]:\n  (1, Alice, (Manager), [Rust, Go], true),\n  (2, Bob, (Engineer), [Python], false),\n  (3, \"Carol Smith\", (Director), [Leadership, Strategy], true)";
 $employees = ason_decode($input2);
 foreach ($employees as $e) {
     $deptTitle = is_array($e['dept']) && isset($e['dept']['title']) ? $e['dept']['title'] : (is_array($e['dept']) ? $e['dept'][0] : $e['dept']);
     echo "   {ID:{$e['id']} Name:{$e['name']} Dept:{Title:{$deptTitle}} Skills:[" . implode(' ', $e['skills']) . "] Active:" . ($e['active']?'true':'false') . "}\n";
 }
 
-// 3. Map/Dict field
-echo "\n3. Map/Dict field:\n";
-$wm = ason_decode('{name,attrs}:(Alice,[(age,30),(score,95)])');
-// PHP decodes vector of tuples [(k,v)] as array of dicts typically, but ason-cpp maps it to [{k,v}] or sequential.
-// Oh wait, ASON decodes `[(age,30)]` as sequential array of sequential arrays (tuples): [["age", 30], ["score", 95]]
+// 3. Key-value entry list
+echo "\n3. Key-value entry list:\n";
+$wm = ason_decode('{name@str,attrs@[{key@str,value@int}]}:(Alice,[(age,30),(score,95)])');
 echo "   {Name:{$wm['name']} Attrs:[" . $wm['attrs'][0][0] . ":" . $wm['attrs'][0][1] . " " . $wm['attrs'][1][0] . ":" . $wm['attrs'][1][1] . "]}\n";
 
 // 4. Nested struct roundtrip
@@ -156,14 +154,18 @@ echo "   ASON text: " . strlen($s) . " B | ASON bin: " . strlen($uniBin) . " B |
 echo "   BIN vs JSON: " . round((1.0-strlen($uniBin)/strlen($jsonBytes))*100) . "% smaller | TEXT vs JSON: " . round((1.0-strlen($s)/strlen($jsonBytes))*100) . "% smaller\n";
 
 // 11. Service config
-echo "\n11. Complex config struct (nested + map + optional):\n";
+echo "\n11. Complex config struct (nested + entry list + optional):\n";
 $config = [
     'name' => 'my-service', 'version' => '2.1.0',
     'db' => ['host' => 'db.example.com', 'port' => 5432, 'max_connections' => 100, 'ssl' => true, 'timeout_ms' => 3000.5],
     'cache' => ['enabled' => true, 'ttl_seconds' => 3600, 'max_size_mb' => 512],
     'log' => ['level' => 'info', 'file' => '/var/log/app.log', 'rotate' => true],
     'features' => ['auth', 'rate-limit', 'websocket'],
-    'env' => [['RUST_LOG', 'debug'], ['DATABASE_URL', 'postgres://localhost:5432/mydb'], ['SECRET_KEY', 'abc123!@#']] // maps using tuple array format
+    'env' => [
+        ['key' => 'RUST_LOG', 'value' => 'debug'],
+        ['key' => 'DATABASE_URL', 'value' => 'postgres://localhost:5432/mydb'],
+        ['key' => 'SECRET_KEY', 'value' => 'abc123!@#'],
+    ]
 ];
 $s = ason_encode($config);
 echo "   serialized (" . strlen($s) . " bytes):\n";

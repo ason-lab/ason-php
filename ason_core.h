@@ -202,17 +202,26 @@ inline Schema parse_schema(const char*& p, const char* e) {
         if (*p == '}') { p++; break; }
         if (s.count > 0) { if (*p != ',') throw Error("expected ','"); p++; skip_ws(p, e); }
         const char* st = p;
-        while (p < e) { char b = *p; if (b == ',' || b == '}' || b == ':' || b == ' ' || b == '\t') break; p++; }
+        while (p < e) {
+            char b = *p;
+            if (b == '<' || b == '>') throw Error("legacy map syntax '<...>' is not supported");
+            if (b == ',' || b == '}' || b == '@' || b == ' ' || b == '\t') break;
+            p++;
+        }
         if (s.count < Schema::MAX) s.fields[s.count++] = std::string_view(st, p - st);
         skip_ws(p, e);
-        if (p < e && *p == ':') {
+        if (p < e && *p == '@') {
             p++; skip_ws(p, e);
             if (p < e && *p == '{') { int d = 0; while (p < e) { if (*p == '{') d++; else if (*p == '}') { d--; if (d == 0) { p++; break; } } p++; } }
             else if (p < e && *p == '[') { int d = 0; while (p < e) { if (*p == '[') d++; else if (*p == ']') { d--; if (d == 0) { p++; break; } } p++; } }
-            else if (p + 3 <= e && p[0] == 'm' && p[1] == 'a' && p[2] == 'p') {
-                p += 3; if (p < e && *p == '[') { int d = 0; while (p < e) { if (*p == '[') d++; else if (*p == ']') { d--; if (d == 0) { p++; break; } } p++; } }
+            else {
+                while (p < e) {
+                    char b = *p;
+                    if (b == '<' || b == '>') throw Error("legacy map syntax '<...>' is not supported");
+                    if (b == ',' || b == '}' || b == ' ' || b == '\t') break;
+                    p++;
+                }
             }
-            else { while (p < e) { char b = *p; if (b == ',' || b == '}' || b == ' ' || b == '\t') break; p++; } }
         }
     }
     return s;

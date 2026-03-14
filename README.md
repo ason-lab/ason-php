@@ -17,8 +17,14 @@ JSON (100 tokens):
 {"users":[{"id":1,"name":"Alice","active":true},{"id":2,"name":"Bob","active":false}]}
 
 ASON (~35 tokens, 65% saving):
-[{id:int, name:str, active:bool}]:(1,Alice,true),(2,Bob,false)
+[{id@int, name@str, active@bool}]:(1,Alice,true),(2,Bob,false)
 ```
+
+## Current Syntax
+
+- Field type annotations use `@`, for example `{id@int,name@str}`.
+- Header/body separation stays `:`, for example `{id@int,name@str}:(1,Alice)`.
+- Dedicated map syntax has been removed. Key-value collections should be modeled as entry-object lists such as `attrs@[{key@str,value@int}]`.
 
 ## Performance (PHP 8.4, x86_64 SSE2/AVX2)
 
@@ -115,7 +121,7 @@ $ason = ason_encode($user);
 
 // With type annotations
 $typed = ason_encodeTyped($user);
-// → "{id:int,name:str,active:bool}:(1,Alice,true)"
+// → "{id@int,name@str,active@bool}:(1,Alice,true)"
 
 // Deserialize
 $decoded = ason_decode($ason);
@@ -158,7 +164,7 @@ $users = [
 ];
 
 echo ason_encodePrettyTyped($users);
-// [{id:int, name:str, active:bool}]:
+// [{id@int, name@str, active@bool}]:
 //   (1, Alice, true),
 //   (2, Bob, false)
 ```
@@ -174,7 +180,7 @@ php -d extension=modules/ason.so examples/basic.php
 # Run complex nested structure examples
 php -d extension=modules/ason.so examples/complex.php
 
-# Run performance benchmarks (ASON vs json_encode/json_decode)
+# Run performance benchmarks (JSON / ASON / BIN)
 php -d extension=modules/ason.so examples/bench.php
 ```
 
