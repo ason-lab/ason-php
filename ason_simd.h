@@ -41,12 +41,12 @@ inline size_t find_quote_or_special(const uint8_t* ptr, size_t len) {
 }
 inline bool has_special_chars(const uint8_t* ptr, size_t len) {
     size_t i = 0;
-    uint8x16_t vc = vdupq_n_u8(0x1F), v1 = vdupq_n_u8(','), v2 = vdupq_n_u8('('), v3 = vdupq_n_u8(')');
+    uint8x16_t vc = vdupq_n_u8(0x1F), v1 = vdupq_n_u8(','), va = vdupq_n_u8('@'), v2 = vdupq_n_u8('('), v3 = vdupq_n_u8(')');
     uint8x16_t v4 = vdupq_n_u8('['), v5 = vdupq_n_u8(']'), v6 = vdupq_n_u8('"'), v7 = vdupq_n_u8('\\');
     for (; i + LANES <= len; i += LANES) {
         uint8x16_t ch = vld1q_u8(ptr + i);
         uint8x16_t r = vcleq_u8(ch, vc);
-        r = vorrq_u8(r, vceqq_u8(ch, v1)); r = vorrq_u8(r, vceqq_u8(ch, v2));
+        r = vorrq_u8(r, vceqq_u8(ch, v1)); r = vorrq_u8(r, vceqq_u8(ch, va)); r = vorrq_u8(r, vceqq_u8(ch, v2));
         r = vorrq_u8(r, vceqq_u8(ch, v3)); r = vorrq_u8(r, vceqq_u8(ch, v4));
         r = vorrq_u8(r, vceqq_u8(ch, v5)); r = vorrq_u8(r, vceqq_u8(ch, v6));
         r = vorrq_u8(r, vceqq_u8(ch, v7));
@@ -54,7 +54,7 @@ inline bool has_special_chars(const uint8_t* ptr, size_t len) {
     }
     for (; i < len; i++) {
         uint8_t b = ptr[i];
-        if (b < 0x20 || b == ',' || b == '(' || b == ')' || b == '[' || b == ']' || b == '"' || b == '\\') return true;
+        if (b < 0x20 || b == ',' || b == '@' || b == '(' || b == ')' || b == '[' || b == ']' || b == '"' || b == '\\') return true;
     }
     return false;
 }
@@ -74,12 +74,12 @@ inline size_t find_quote_or_special(const uint8_t* ptr, size_t len) {
 }
 inline bool has_special_chars(const uint8_t* ptr, size_t len) {
     size_t i = 0;
-    __m128i vc = _mm_set1_epi8(0x1F), v1 = _mm_set1_epi8(','), v2 = _mm_set1_epi8('('), v3 = _mm_set1_epi8(')');
+    __m128i vc = _mm_set1_epi8(0x1F), v1 = _mm_set1_epi8(','), va = _mm_set1_epi8('@'), v2 = _mm_set1_epi8('('), v3 = _mm_set1_epi8(')');
     __m128i v4 = _mm_set1_epi8('['), v5 = _mm_set1_epi8(']'), v6 = _mm_set1_epi8('"'), v7 = _mm_set1_epi8('\\');
     for (; i + LANES <= len; i += LANES) {
         __m128i ch = _mm_loadu_si128((const __m128i*)(ptr + i));
         __m128i r = _mm_cmpeq_epi8(_mm_max_epu8(ch, vc), vc);
-        r = _mm_or_si128(r, _mm_cmpeq_epi8(ch, v1)); r = _mm_or_si128(r, _mm_cmpeq_epi8(ch, v2));
+        r = _mm_or_si128(r, _mm_cmpeq_epi8(ch, v1)); r = _mm_or_si128(r, _mm_cmpeq_epi8(ch, va)); r = _mm_or_si128(r, _mm_cmpeq_epi8(ch, v2));
         r = _mm_or_si128(r, _mm_cmpeq_epi8(ch, v3)); r = _mm_or_si128(r, _mm_cmpeq_epi8(ch, v4));
         r = _mm_or_si128(r, _mm_cmpeq_epi8(ch, v5)); r = _mm_or_si128(r, _mm_cmpeq_epi8(ch, v6));
         r = _mm_or_si128(r, _mm_cmpeq_epi8(ch, v7));
@@ -87,7 +87,7 @@ inline bool has_special_chars(const uint8_t* ptr, size_t len) {
     }
     for (; i < len; i++) {
         uint8_t b = ptr[i];
-        if (b < 0x20 || b == ',' || b == '(' || b == ')' || b == '[' || b == ']' || b == '"' || b == '\\') return true;
+        if (b < 0x20 || b == ',' || b == '@' || b == '(' || b == ')' || b == '[' || b == ']' || b == '"' || b == '\\') return true;
     }
     return false;
 }
@@ -99,7 +99,7 @@ inline size_t find_quote_or_special(const uint8_t* ptr, size_t len) {
 inline bool has_special_chars(const uint8_t* ptr, size_t len) {
     for (size_t i = 0; i < len; i++) {
         uint8_t b = ptr[i];
-        if (b < 0x20 || b == ',' || b == '(' || b == ')' || b == '[' || b == ']' || b == '"' || b == '\\') return true;
+        if (b < 0x20 || b == ',' || b == '@' || b == '(' || b == ')' || b == '[' || b == ']' || b == '"' || b == '\\') return true;
     }
     return false;
 }
