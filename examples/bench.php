@@ -323,13 +323,27 @@ function runThroughputSection(): void {
     $asonDeRps = $totalRecords / ($asonDeMs / 1000.0);
     $binDeRps = $totalRecords / ($binDeMs / 1000.0);
 
-    printf("  Serialize throughput:   JSON %12s rec/s | ASON %12s rec/s | BIN %12s rec/s\n", number_format($jsonSerRps, 0, '.', ','), number_format($asonSerRps, 0, '.', ','), number_format($binSerRps, 0, '.', ','));
-    printf("  Deserialize throughput: JSON %12s rec/s | ASON %12s rec/s | BIN %12s rec/s\n", number_format($jsonDeRps, 0, '.', ','), number_format($asonDeRps, 0, '.', ','), number_format($binDeRps, 0, '.', ','));
+    printf(
+        "  Serialize throughput:   JSON %12s rec/s | ASON %12s rec/s (%s) | BIN %12s rec/s (%s)\n",
+        number_format($jsonSerRps, 0, '.', ','),
+        number_format($asonSerRps, 0, '.', ','),
+        formatRatio($asonSerRps, $jsonSerRps),
+        number_format($binSerRps, 0, '.', ','),
+        formatRatio($binSerRps, $jsonSerRps)
+    );
+    printf(
+        "  Deserialize throughput: JSON %12s rec/s | ASON %12s rec/s (%s) | BIN %12s rec/s (%s)\n",
+        number_format($jsonDeRps, 0, '.', ','),
+        number_format($asonDeRps, 0, '.', ','),
+        formatRatio($asonDeRps, $jsonDeRps),
+        number_format($binDeRps, 0, '.', ','),
+        formatRatio($binDeRps, $jsonDeRps)
+    );
     printf("  Size baseline (1k rows): JSON %dB | ASON %dB(%s) | BIN %dB(%s)\n\n", strlen($jsonData), strlen($asonData), formatPercent(strlen($asonData), strlen($jsonData)), strlen($binData), formatPercent(strlen($binData), strlen($jsonData)));
 }
 
 echo "╔══════════════════════════════════════════════════════════════╗\n";
-echo "║                ASON PHP vs JSON Benchmark                  ║\n";
+echo "║                ASON PHP vs JSON Benchmark                    ║\n";
 echo "╚══════════════════════════════════════════════════════════════╝\n\n";
 echo "System: " . php_uname('s') . " " . php_uname('m') . " | PHP " . PHP_VERSION . "\n";
 echo "Mode: compact JSON vs typed ASON text vs ASON binary\n";
@@ -343,5 +357,5 @@ runLargePayloadSection();
 runThroughputSection();
 
 echo "╔══════════════════════════════════════════════════════════════╗\n";
-echo "║                    Benchmark Complete                      ║\n";
+echo "║                    Benchmark Complete                        ║\n";
 echo "╚══════════════════════════════════════════════════════════════╝\n";
