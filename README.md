@@ -4,9 +4,9 @@
 [![C++ Extension](https://img.shields.io/badge/type-C%2B%2B%20extension-green.svg)](#)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-A high-performance PHP C++ extension for [ASUN](https://github.com/asun-lab/asun) (Array-Schema Unified Notation) — SIMD-accelerated (SSE2/AVX2/NEON), zero-copy parsing, direct Zend API with no intermediate layers.
+A high-performance PHP C++ extension for [ASUN](https://github.com/asunLab/asun) (Array-Schema Unified Notation) — SIMD-accelerated (SSE2/AVX2/NEON), zero-copy parsing, direct Zend API with no intermediate layers.
 
-[中文文档](README_CN.md)
+[中文文档](https://github.com/asunLab/asun-php/blob/main/README_CN.md)
 
 ## What is ASUN?
 

@@ -4,9 +4,9 @@
 [![C++ Extension](https://img.shields.io/badge/type-C%2B%2B%20扩展-green.svg)](#)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-高性能 PHP C++ 扩展，用于 [ASUN](https://github.com/asun-lab/asun)（Array-Schema Unified Notation）—— SIMD 加速（SSE2/AVX2/NEON），零拷贝解析，直接调用 Zend API，无中间层。
+高性能 PHP C++ 扩展，用于 [ASUN](https://github.com/asunLab/asun)（Array-Schema Unified Notation）—— SIMD 加速（SSE2/AVX2/NEON），零拷贝解析，直接调用 Zend API，无中间层。
 
-[English](README.md)
+[English](https://github.com/asunLab/asun-php/blob/main/README.md)
 
 ## 什么是 ASUN？
 
