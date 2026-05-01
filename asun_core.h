@@ -58,15 +58,34 @@ inline void append_f64(std::string& buf, double v) {
 // ---- String helpers ----
 inline bool needs_quoting(const char* s, size_t len) {
     if (len == 0) return true;
-    if (s[0] == ' ' || s[len-1] == ' ') return true;
+    {
+        char f = s[0], e = s[len - 1];
+        if (f == ' ' || f == '\t' || f == '\n' || f == '\r') return true;
+        if (e == ' ' || e == '\t' || e == '\n' || e == '\r') return true;
+    }
     if (len == 4 && memcmp(s, "true", 4) == 0) return true;
     if (len == 5 && memcmp(s, "false", 5) == 0) return true;
+    // Structural characters covered by SIMD: ctrl, ',', '@', '(', ')', '[', ']', '"', '\\'.
     if (asun_simd::has_special_chars((const uint8_t*)s, len)) return true;
-    size_t st = 0; if (len > 0 && s[0] == '-') st = 1;
-    if (st < len) {
-        bool num = true;
-        for (size_t i = st; i < len; i++) { char c = s[i]; if (!((c >= '0' && c <= '9') || c == '.')) { num = false; break; } }
-        if (num && len > st) return true;
+    // Additional structural characters and the comment-open digraph '/'+'*'.
+    for (size_t i = 0; i < len; i++) {
+        unsigned char b = static_cast<unsigned char>(s[i]);
+        if (b == '{' || b == '}' || b == ':') return true;
+        if (b == '/' && i + 1 < len && s[i + 1] == '*') return true;
+    }
+    // Number-lookalike: any leading-digit, '-DIGIT', '+DIGIT', '+.DIGIT',
+    // '-.DIGIT', '.DIGIT' would be consumed by the number parser.
+    unsigned char c0 = static_cast<unsigned char>(s[0]);
+    if (c0 >= '0' && c0 <= '9') return true;
+    if (c0 == '-' || c0 == '+') {
+        if (len >= 2) {
+            unsigned char c1 = static_cast<unsigned char>(s[1]);
+            if ((c1 >= '0' && c1 <= '9') || c1 == '.') return true;
+        }
+    }
+    if (c0 == '.' && len >= 2) {
+        unsigned char c1 = static_cast<unsigned char>(s[1]);
+        if (c1 >= '0' && c1 <= '9') return true;
     }
     return false;
 }
@@ -83,7 +102,20 @@ inline void append_escaped(std::string& buf, const char* s, size_t len) {
             case '\\': buf.append("\\\\", 2); break;
             case '\n': buf.append("\\n", 2); break;
             case '\t': buf.append("\\t", 2); break;
-            default: buf.push_back(s[start]); break;
+            case '\r': buf.append("\\r", 2); break;
+            case '\b': buf.append("\\b", 2); break;
+            case '\f': buf.append("\\f", 2); break;
+            default: {
+                uint8_t b = static_cast<uint8_t>(s[start]);
+                if (b < 0x20 || b == 0x7f) {
+                    char hex[7];
+                    int n = std::snprintf(hex, sizeof(hex), "\\u%04x", b);
+                    buf.append(hex, (size_t)n);
+                } else {
+                    buf.push_back(s[start]);
+                }
+                break;
+            }
         }
         start++;
     }
@@ -95,24 +127,18 @@ inline void append_str(std::string& buf, const char* s, size_t len) {
 }
 
 inline bool schema_name_needs_quoting(const char* s, size_t len) {
+    // Per ABNF:  bare-field-name = 1*( ALPHA / DIGIT / "_" )
+    // Anything else (incl. '.', '-', '+', '@', ':', etc.) requires quoting.
     if (len == 0) return true;
-    if ((len == 4 && std::memcmp(s, "true", 4) == 0) ||
-        (len == 5 && std::memcmp(s, "false", 5) == 0)) return true;
-    if (s[0] == ' ' || s[len - 1] == ' ') return true;
-    bool could_num = true;
-    size_t num_start = (s[0] == '-') ? 1 : 0;
-    if (num_start >= len) could_num = false;
     for (size_t i = 0; i < len; i++) {
         unsigned char b = static_cast<unsigned char>(s[i]);
-        if (b <= 0x20 || b == ',' || b == '@' || b == ':' || b == '{' || b == '}' ||
-            b == '[' || b == ']' || b == '(' || b == ')' || b == '"' || b == '\\') {
-            return true;
-        }
-        if (could_num && i >= num_start && !((b >= '0' && b <= '9') || b == '.')) {
-            could_num = false;
-        }
+        bool is_bare = (b >= 'A' && b <= 'Z')
+                    || (b >= 'a' && b <= 'z')
+                    || (b >= '0' && b <= '9')
+                    || b == '_';
+        if (!is_bare) return true;
     }
-    return could_num && len > num_start;
+    return false;
 }
 
 inline void append_schema_name(std::string& buf, const char* s, size_t len) {
@@ -138,6 +164,41 @@ inline bool at_value_end(const char* p, const char* e) {
     if (p >= e) return true; char c = *p; return c == ',' || c == ')' || c == ']';
 }
 
+// Per ABNF: HEXDIG = DIGIT / "A"-"F" / "a"-"f".
+// Returns -1 for non-hex bytes; callers MUST validate before consuming.
+inline int hex_digit_value(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    return -1;
+}
+
+// Decode an exact 4-HEXDIG block (already past the leading \u). Throws if any
+// of the four bytes is not a HEXDIG. Advances `p` past the four hex digits and
+// appends the UTF-8 encoding of the codepoint to `out`.
+inline void decode_unicode_escape(const char*& p, const char* e, std::string& out) {
+    if (p + 4 > e) throw Error("bad unicode escape: need 4 hex digits");
+    int n0 = hex_digit_value(p[0]);
+    int n1 = hex_digit_value(p[1]);
+    int n2 = hex_digit_value(p[2]);
+    int n3 = hex_digit_value(p[3]);
+    if (n0 < 0 || n1 < 0 || n2 < 0 || n3 < 0) {
+        throw Error("bad unicode escape: invalid hex digit");
+    }
+    unsigned long cp = (unsigned long)((n0 << 12) | (n1 << 8) | (n2 << 4) | n3);
+    if (cp < 0x80) {
+        out.push_back((char)cp);
+    } else if (cp < 0x800) {
+        out.push_back((char)(0xC0 | (cp >> 6)));
+        out.push_back((char)(0x80 | (cp & 0x3F)));
+    } else {
+        out.push_back((char)(0xE0 | (cp >> 12)));
+        out.push_back((char)(0x80 | ((cp >> 6) & 0x3F)));
+        out.push_back((char)(0x80 | (cp & 0x3F)));
+    }
+    p += 4;
+}
+
 inline std::string parse_quoted(const char*& p, const char* e) {
     p++;
     const char* start = p;
@@ -153,17 +214,22 @@ inline std::string parse_quoted(const char*& p, const char* e) {
             switch (*p) {
                 case '"': r.push_back('"'); break; case '\\': r.push_back('\\'); break;
                 case 'n': r.push_back('\n'); break; case 't': r.push_back('\t'); break;
+                case 'r': r.push_back('\r'); break; case 'b': r.push_back('\b'); break;
+                case 'f': r.push_back('\f'); break;
                 case ',': r.push_back(','); break; case '(': r.push_back('('); break;
                 case ')': r.push_back(')'); break; case '[': r.push_back('['); break;
                 case ']': r.push_back(']'); break;
+                case '{': r.push_back('{'); break; case '}': r.push_back('}'); break;
+                case ':': r.push_back(':'); break; case '@': r.push_back('@'); break;
                 case 'u': {
-                    if (p + 4 >= e) throw Error("bad unicode");
-                    char hex[5] = {p[1],p[2],p[3],p[4],0};
-                    unsigned long cp = strtoul(hex, nullptr, 16);
-                    if (cp < 0x80) r.push_back((char)cp);
-                    else if (cp < 0x800) { r.push_back((char)(0xC0|(cp>>6))); r.push_back((char)(0x80|(cp&0x3F))); }
-                    else { r.push_back((char)(0xE0|(cp>>12))); r.push_back((char)(0x80|((cp>>6)&0x3F))); r.push_back((char)(0x80|(cp&0x3F))); }
-                    p += 4; break;
+                    p++; // skip 'u' so decode_unicode_escape starts at 1st hex
+                    decode_unicode_escape(p, e, r);
+                    // we land 1-past-the-last-hex; outer loop expects to land
+                    // ON the last consumed escape char so the trailing p++
+                    // below moves to the next normal byte. Pre-decrement to
+                    // counter that.
+                    p--;
+                    break;
                 }
                 default: throw Error(std::string("bad escape: \\") + *p);
             }
@@ -188,8 +254,19 @@ inline std::string parse_plain(const char*& p, const char* e) {
                 case ',': r.push_back(','); break; case '(': r.push_back('('); break;
                 case ')': r.push_back(')'); break; case '[': r.push_back('['); break;
                 case ']': r.push_back(']'); break; case '"': r.push_back('"'); break;
+                case '{': r.push_back('{'); break; case '}': r.push_back('}'); break;
+                case ':': r.push_back(':'); break; case '@': r.push_back('@'); break;
                 case '\\': r.push_back('\\'); break; case 'n': r.push_back('\n'); break;
                 case 't': r.push_back('\t'); break;
+                case 'r': r.push_back('\r'); break; case 'b': r.push_back('\b'); break;
+                case 'f': r.push_back('\f'); break;
+                case 'u': {
+                    q++; // skip 'u' so decode_unicode_escape starts at 1st hex
+                    decode_unicode_escape(q, ve, r);
+                    // Outer loop performs `q++` after this switch; counter it.
+                    q--;
+                    break;
+                }
                 default: throw Error(std::string("bad escape: \\") + *q);
             }
             q++;
@@ -273,13 +350,24 @@ inline Schema parse_schema(const char*& p, const char* e) {
             auto name = parse_quoted(p, e);
             if (s.count < Schema::MAX) s.fields[s.count++] = std::move(name);
         } else {
+            // Per ABNF: bare-field-name = 1*( ALPHA / DIGIT / "_" ).
+            // Anything outside that set must be wrapped in a quoted-string.
             const char* st = p;
             while (p < e) {
-                char b = *p;
-                if (b == '<' || b == '>') throw Error("unsupported schema syntax");
-                if (b == ',' || b == '}' || b == '@' || b == ' ' || b == '\t') break;
+                unsigned char b = static_cast<unsigned char>(*p);
+                if (b == ',' || b == '}' || b == '@' || b == ' ' || b == '\t' ||
+                    b == '\n' || b == '\r') break;
+                bool is_bare = (b >= 'A' && b <= 'Z')
+                            || (b >= 'a' && b <= 'z')
+                            || (b >= '0' && b <= '9')
+                            || b == '_';
+                if (!is_bare) {
+                    throw Error(std::string("invalid character in bare field-name: '")
+                                + (char)b + "'");
+                }
                 p++;
             }
+            if (p == st) throw Error("expected field-name");
             if (s.count < Schema::MAX) s.fields[s.count++] = std::string(st, p - st);
         }
         skip_ws(p, e);

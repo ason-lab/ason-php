@@ -112,11 +112,21 @@ static void encode_tuple_values(std::string& buf, zval* val) {
     HashTable* ht = Z_ARRVAL_P(val);
     zval* v;
     bool first = true;
+    bool last_null = false;
+    size_t n = 0;
     ZEND_HASH_FOREACH_VAL(ht, v) {
         if (!first) buf.push_back(',');
         first = false;
         encode_zval(buf, v);
+        last_null = (Z_TYPE_P(v) == IS_NULL);
+        n++;
     } ZEND_HASH_FOREACH_END();
+    // Per ABNF, null inside a tuple/array is the empty <empty-element> token,
+    // i.e. nothing between two separators. Without a trailing comma, a single
+    // trailing null would be lost ("(1,)" round-trips as just (1,)). Force
+    // a trailing comma when the last element was null so that decoders see
+    // it as <element><,><empty-element>.
+    if (n > 0 && last_null) buf.push_back(',');
 }
 
 static void encode_zval(std::string& buf, zval* val) {
@@ -126,7 +136,7 @@ static void encode_zval(std::string& buf, zval* val) {
         case IS_TRUE: buf.append("true", 4); break;
         case IS_FALSE: buf.append("false", 5); break;
         case IS_STRING: append_str(buf, Z_STRVAL_P(val), Z_STRLEN_P(val)); break;
-        case IS_NULL: break; // empty
+        case IS_NULL: break; // <null-value> = <empty-element>; nothing emitted here
         case IS_ARRAY: {
             HashTable* ht = Z_ARRVAL_P(val);
             if (is_sequential_array(ht)) {
@@ -145,15 +155,23 @@ static void encode_zval(std::string& buf, zval* val) {
                     } ZEND_HASH_FOREACH_END();
                     buf.push_back(']');
                 } else {
-                    // Simple array: [v1,v2,...]
+                    // Simple array: [v1,v2,...]. A null element is encoded as
+                    // an empty <empty-element> between commas; force a trailing
+                    // comma when the last element was null so that a single
+                    // trailing/lone null is not lost (`[None]` -> `[,]` not `[]`).
                     buf.push_back('[');
                     bool f2 = true;
+                    bool last_null = false;
+                    size_t n = 0;
                     zval* el;
                     ZEND_HASH_FOREACH_VAL(ht, el) {
                         if (!f2) buf.push_back(',');
                         f2 = false;
                         encode_zval(buf, el);
+                        last_null = (Z_TYPE_P(el) == IS_NULL);
+                        n++;
                     } ZEND_HASH_FOREACH_END();
+                    if (n > 0 && last_null) buf.push_back(',');
                     buf.push_back(']');
                 }
             } else {
@@ -231,15 +249,19 @@ static void decode_value_to_zval(const char*& p, const char* e, zval* rv) {
             if (!first) { if (*p == ',') { p++; skip_ws_comments(p, e); if (p < e && *p == ']') { p++; break; } } }
             first = false;
             zval el;
-            decode_value_to_zval(p, e, &el);
+            if (at_value_end(p, e)) { ZVAL_NULL(&el); }
+            else decode_value_to_zval(p, e, &el);
             zend_hash_next_index_insert(Z_ARRVAL_P(rv), &el);
         }
         return;
     }
 
-    // Tuple (...) — positional struct without schema
+    // Tuple (...) — positional struct without schema. Empty `()` is the
+    // explicit null marker; a populated tuple decodes to a sequential array.
     if (*p == '(') {
         p++;
+        skip_ws_comments(p, e);
+        if (p < e && *p == ')') { p++; ZVAL_NULL(rv); return; }
         array_init(rv);
         bool first = true;
         int idx = 0;
@@ -293,29 +315,70 @@ static void decode_value_to_zval(const char*& p, const char* e, zval* rv) {
         return;
     }
 
-    // Number or plain string
-    const char* start = p;
-    bool is_neg = false, has_dot = false, is_num = true;
-    if (p < e && *p == '-') { is_neg = true; p++; }
-    const char* dstart = p;
-    while (p < e && *p >= '0' && *p <= '9') p++;
-    if (p < e && *p == '.') { has_dot = true; p++; while (p < e && *p >= '0' && *p <= '9') p++; }
-    // Check if it's really a delimiter-terminated number
-    if (p > dstart && (p >= e || *p == ',' || *p == ')' || *p == ']' || *p == ' ' || *p == '\t' || *p == '\n')) {
-        if (has_dot) {
-            double v; std::from_chars(start, p, v);
-            ZVAL_DOUBLE(rv, v);
-        } else {
-            int64_t v = 0; bool neg = (start[0] == '-');
-            const char* q = neg ? start + 1 : start;
-            while (q < p) { v = v * 10 + (*q - '0'); q++; }
-            ZVAL_LONG(rv, neg ? -v : v);
+    // Number or plain string — strict ABNF:
+    //   float = ["-"] 1*DIGIT [ "." 1*DIGIT ] [ ("e"/"E") ["+"/"-"] 1*DIGIT ]
+    // ≥1 integer digit required; if '.' or 'e/E' present, ≥1 digit must follow.
+    // Otherwise fall through to plain-string per type-priority cascade.
+    {
+        const char* start = p;
+        const char* q = p;
+        if (q < e && *q == '-') q++;
+        const char* int_start = q;
+        while (q < e && *q >= '0' && *q <= '9') q++;
+        bool int_ok = (q > int_start);
+        bool has_frac_or_exp = false;
+        bool ok = int_ok;
+        if (ok && q < e && *q == '.') {
+            q++;
+            const char* frac_start = q;
+            while (q < e && *q >= '0' && *q <= '9') q++;
+            if (q == frac_start) ok = false;
+            else has_frac_or_exp = true;
         }
-        return;
+        if (ok && q < e && (*q == 'e' || *q == 'E')) {
+            q++;
+            if (q < e && (*q == '+' || *q == '-')) q++;
+            const char* exp_start = q;
+            while (q < e && *q >= '0' && *q <= '9') q++;
+            if (q == exp_start) ok = false;
+            else has_frac_or_exp = true;
+        }
+        // Must terminate at a delimiter or end.
+        if (ok && (q >= e || *q == ',' || *q == ')' || *q == ']' ||
+                   *q == ' '  || *q == '\t' || *q == '\n' || *q == '\r')) {
+            if (has_frac_or_exp) {
+                double v = 0.0;
+                auto [ptr, ec] = std::from_chars(start, q, v);
+                if (ec == std::errc()) {
+                    p = q;
+                    ZVAL_DOUBLE(rv, v);
+                    return;
+                }
+            } else {
+                int64_t v = 0; bool neg = (start[0] == '-');
+                bool overflow = false;
+                const uint64_t lim = neg ? (uint64_t)INT64_MAX + 1 : (uint64_t)INT64_MAX;
+                uint64_t uv = 0;
+                const char* it = neg ? start + 1 : start;
+                for (; it < q; it++) {
+                    int dg = *it - '0';
+                    if (uv > (lim - (uint64_t)dg) / 10) { overflow = true; break; }
+                    uv = uv * 10 + (uint64_t)dg;
+                }
+                if (!overflow) {
+                    if (neg) v = (uv == 0) ? 0 : -(int64_t)(uv - 1) - 1;
+                    else v = (int64_t)uv;
+                    p = q;
+                    ZVAL_LONG(rv, v);
+                    return;
+                }
+            }
+        }
+        // Not a valid number — fall through to plain-string.
+        p = start;
     }
 
     // Fall back: it's a plain string value
-    p = start;
     std::string s = parse_plain(p, e);
     ZVAL_STRINGL(rv, s.data(), s.size());
 }
@@ -362,6 +425,12 @@ static void decode_top(const char*& p, const char* e, zval* rv) {
         ZVAL_NULL(rv);
         return;
     }
+
+    // A bare top-level tuple `(…)` is not a legal ASUN document — the grammar
+    // <top-form> only accepts <object-form> | <array-of-objects-form> |
+    // <plain-array> | <bare-value>. The empty `()` form is therefore also
+    // illegal here; top-level null is represented by an empty document.
+    if (*p == '(') throw Error("top-level tuple is not a valid ASUN document");
 
     decode_value_to_zval(p, e, rv);
 }
