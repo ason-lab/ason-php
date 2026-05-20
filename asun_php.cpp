@@ -420,6 +420,10 @@ static void decode_top(const char*& p, const char* e, zval* rv) {
         if (p < e && *p == '(') {
             p++;
             decode_array_values(p, e, schema, rv);
+            skip_ws_comments(p, e);
+            if (p < e && *p == ',') {
+                throw Error("multiple tuples require array-of-objects form: use [{...}]:(...),(...) instead of {...}:(...),(...)");
+            }
             return;
         }
         ZVAL_NULL(rv);
